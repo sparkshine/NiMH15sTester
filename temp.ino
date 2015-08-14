@@ -14,8 +14,8 @@ void writeDate();
 void readingValues();
 void displaySerial();
 /*-----( Declare Constants )-----*/
-const int minusButton = 7;     // the number of the pushbutton pin
-const int plusButton = 8;     // the number of the pushbutton pin
+const int minusButton = 8;     // the number of the pushbutton pin
+const int plusButton = 7;     // the number of the pushbutton pin
 const int okButton = 9;     // the number of the pushbutton pin
 const int voltagePin = A2;  //Voltage measurement pin
 const int currentPin = A3;  //Voltage measurement pin
@@ -27,7 +27,10 @@ int serialNo;
 int lastSerialNo;
 int resultV = 100;
 int resultI = 100;
-float vcc = 4.97;
+int temperature;
+int packR;
+uint8_t fail = 0;
+float vcc = 5.03;
 byte minusButtonLast = 1;     // the number of the pushbutton pin
 byte plusButtonLast = 1;     // the number of the pushbutton pin
 //int okButtonLast = 0;     // the number of the pushbutton pin
@@ -36,8 +39,10 @@ File SDFileData;
 #define SD_CARD_CD_DIO 10 /* DIO pin used to control the modules CS pin */
 #define SEMITEC_103JT_10k 3435.0f,298.15f,10000.0f  // B,T0,R0
 #define THERM1PIN 0     // Arduino Thermistor PIN
-#define THERM2PIN 2     // Pack Thermistor PIN            
-#define STARTPIN 9      // Routine start button
+#define THERM2PIN 1     // Pack Thermistor PIN            
+#define MOSFET 6 //
+#define R2_Balance 11937.0f //
+#define R1_Balance 9901.0f //
 // set the LCD address to 0x27 for a 20 chars 4 line display
 // Set the pins on the I2C chip used for LCD connections:
 // addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
@@ -49,9 +54,7 @@ enum { // enumerating 3 major temperature scales
 };
 
 /*----( SETUP: RUNS ONCE )----*/
-void setup()
-{
-
+void setup() {
   Serial.begin(9600);  // Used to type in characters
   lcd.begin(16, 2);  // initialize the lcd for 16 chars 2 lines, turn on backlight
   /* DIO pin uesd for the CS function. Note that even if you are not driving this
@@ -216,9 +219,7 @@ void displayDate()
 }
 
 /*---------------( WRITE DATE TO SDCARD )-------------*/
-void writeDate()
-{
-
+void writeDate(){
   SDFileData = SD.open("date.txt", FILE_WRITE);
   /* Check if the text file already exists */
   while (SD.exists("date.txt"))
@@ -227,30 +228,21 @@ void writeDate()
     //Serial.println("date.txt already exists...DELETING");
     SD.remove("date.txt");
   }
-
   /* Create a new text file on the SD card */
   //Serial.println("Creating date.txt");
   SDFileData = SD.open("date.txt", FILE_WRITE);
-
-
   /* If the file was created ok then add some content */
-  if (SDFileData)
-  {
+  if (SDFileData){
     //SDFileData.println("18,03,14");
-
     //Date
     SDFileData.print(day);
     SDFileData.print(",");
     SDFileData.print(month);
     SDFileData.print(",");
     SDFileData.print(year);
-
     //Close file
     SDFileData.close();
-
   }
-
-
 }
 
 void findLastSerial()
@@ -258,29 +250,50 @@ void findLastSerial()
   //Serial.println("find last serial");
 
   /* Check if the text file exists */
-  if (SD.exists("results.txt"))
-  {
+  if (SD.exists("results.txt")) {
     //Serial.println("results.txt exists, attempting to read file...");
-
     /* The file exists so open it */
     SDFileData = SD.open("results.txt");
-    while (SDFileData.available())
-    {
+    while (SDFileData.available()) {
+      //      lastSerialNo = SDFileData.parseInt();
+      //      serialNo = lastSerialNo + 1;
+      //      resultV = SDFileData.parseInt();
+      //      //resultI = SDFileData.parseInt();
+      //      SDFileData.parseInt();
       lastSerialNo = SDFileData.parseInt();
       serialNo = lastSerialNo + 1;
       resultV = SDFileData.parseInt();
-      //resultI = SDFileData.parseInt();
-
-      Serial.print("S/N::");
-      Serial.println(serialNo);
+      Serial.print("S/N: ");
+      Serial.print(serialNo);
+      Serial.print(" ");
+      byte lastDay = SDFileData.parseInt();
+      byte lastMonth = SDFileData.parseInt();
+      byte lastYear = SDFileData.parseInt();
     }
 
     SDFileData.close();
     lcd.clear();
+    lcd.print("Last S/N: ");
+    lcd.print(lastSerialNo);
+    lcd.setCursor(0, 1);
+    lcd.print("CONT-- ");
+    lcd.print("NEW++");
+    while (1) {
+      if (digitalRead(minusButton) != minusButtonLast) {
+        delay(200);
+        break;
+      }
+      if (digitalRead(plusButton) != plusButtonLast) {
+        delay(200);
+        plusButtonLast != plusButtonLast;
+        lastSerialNo = 0;
+        serialNo = 1;
+        break;
+      }
+    }
   }
 
-  else
-  {
+  else {
     lcd.clear();
     lcd.setCursor(0, 0); //Start at character 4 on line 0
     lcd.print("SD-ERROR");
@@ -288,24 +301,16 @@ void findLastSerial()
     lcd.print("RESULTS LOST");
     while (1);
   }
-
-
   Serial.println("display serial");
   displaySerial();
-
   Serial.println("return to main");
-
-
 }
 
 float Temperature(int AnalogInputNumber, int OutputUnit, float B, float T0, float R0, float R_Balance) {
   float R, T;
-
-  //  R=1024.0f*R_Balance/float(analogRead(AnalogInputNumber)))-R_Balance;
-  R = R_Balance * (1024.0f / float(analogRead(AnalogInputNumber)) - 1);
-
+  R = ((1024.0f * R_Balance / float(analogRead(AnalogInputNumber))) - R_Balance);
+  //  R = R_Balance * (1024.0f / float(analogRead(AnalogInputNumber)) - 1);
   T = 1.0f / (1.0f / T0 + (1.0f / B) * log(R / R0));
-
   switch (OutputUnit) {
     case T_CELSIUS :
       T -= 273.15f;
@@ -316,19 +321,80 @@ float Temperature(int AnalogInputNumber, int OutputUnit, float B, float T0, floa
     default:
       break;
   };
+  Serial.print(T);
   return T;
+}
+
+int resistanceErr() {
+  lcd.clear();
+  lcd.print("THERMISTOR ERROR");
+  lcd.setCursor(0, 1);
+  lcd.print("RETEST-- CONT++");
+  while (1) {
+    if (digitalRead(minusButton) != minusButtonLast) {
+      delay(200);
+      packR = readResistance();
+      checkResistance(temperature,packR);
+      if(bitRead(fail,0) != 0){
+        break;
+      }
+    }
+    if (digitalRead(plusButton) != plusButtonLast) {
+      delay(200);
+      minusButtonLast != minusButtonLast;
+      bitSet(fail,0);
+      break;
+    }
+  }
+}
+
+int readResistance() {
+  float rawADC = analogRead(THERM2PIN);
+  int packR = rawADC * R2_Balance / (1024.0f - rawADC);
+  return packR;
+}
+
+int checkResistance(int temperature, int packR) {
+  if (temperature > 15 && temperature <= 17.5) {
+    if ( packR < 13000 || packR > 16500) {
+      resistanceErr();
+    }
+  }
+  if (temperature > 17.5 && temperature <= 20) {
+    if ( packR < 11500 || packR > 15000) {
+      resistanceErr();
+    }
+  }
+  if (temperature > 20 && temperature <= 22.5) {
+    if ( packR < 10000 || packR > 13500) {
+      resistanceErr();
+    }
+  }
+  if (temperature > 22.5 && temperature <= 25) {
+    if ( packR < 9000 || packR > 12000) {
+      resistanceErr();
+    }
+  }
+  if (temperature > 25 && temperature <= 27.5) {
+    if ( packR < 8000 || packR > 11000) {
+      resistanceErr();
+    }
+  }
+  if (temperature > 27.5 && temperature <= 30) {
+    if ( packR < 7000 || packR > 10000) {
+      resistanceErr();
+    }
+  }
+  bitSet(fail,0);
 }
 
 
 /*---------------( ENTER SERIAL NUMBER, READING VALUES )-------------*/
 void readingValues() {
   lcd.clear();
-  Serial.print("INSERT PACK");
-  
-
   float voltage = analogRead(voltagePin);
   lcd.print(voltage);
-  while (voltage < 1024) {
+  while (voltage < 10) {
     if (digitalRead(minusButton) != minusButtonLast) {
       delay(200);
       if (serialNo > lastSerialNo + 1) {
@@ -344,9 +410,15 @@ void readingValues() {
     displaySerial();
     voltage = analogRead(voltagePin);
   }
+  temperature = Temperature(THERM1PIN, T_CELSIUS, SEMITEC_103JT_10k, R1_Balance);
+  packR = readResistance();
+  while ( bitRead(fail, 0) != 1) {
+    checkResistance(temperature, packR);
+    bitRead(fail, 0);
+  }
 
-  int ambTemp = Temperature(THERM1PIN, T_CELSIUS, SEMITEC_103JT_10k, 9902.0f);
-//  int packR = R2_Balance * (1024.0f / float(analogRead(THERM2PIN)) - 1);
+  Serial.print("PACK P:");
+  Serial.println(packR);
   //Once pack has been connected leave for delay until voltage and current settles
   lcd.clear();
   lcd.setCursor(0, 0); //Start at character 4 on line 0
@@ -377,16 +449,16 @@ void readingValues() {
     SDFileData.println("");
     SDFileData.print(serialNo);
     SDFileData.print(",");
-    SDFileData.print(ambTemp);
+    SDFileData.print(temperature);
     SDFileData.print(",");
-//    SDFileData.print(packR);
-//    SDFileData.print(",");
-//    SDFileData.print(voltage1);
-//    SDFileData.print(",");
-//    SDFileData.print(voltage2);
-//    SDFileData.print(",");
-//    SDFileData.print(scCurrent);
-//    SDFileData.print(",");
+    //    SDFileData.print(packR);
+    //    SDFileData.print(",");
+    //    SDFileData.print(voltage1);
+    //    SDFileData.print(",");
+    //    SDFileData.print(voltage2);
+    //    SDFileData.print(",");
+    //    SDFileData.print(scCurrent);
+    //    SDFileData.print(",");
     SDFileData.print(day);
     SDFileData.print("/");
     SDFileData.print(month);
@@ -398,11 +470,18 @@ void readingValues() {
     //Move serial number on 1 from last just saved
     serialNo++;
   }
+  fail = 0;
   lcd.clear();
 }
 
-void displaySerial()
+void shortcircuitI()
 {
+  digitalWrite(MOSFET, HIGH);
+  delay(10000);
+  //take current reading
+}
+
+void displaySerial(){
   //lcd.clear();
   lcd.setCursor(0, 0); //Start at character 4 on line 0
   lcd.print("INSERT PACK");
@@ -418,15 +497,15 @@ void displaySerial()
 
 }
 
-/*
-static void freeRAM (){
-  extern int __heap_start, *__brkval;
-  int v;
-  int free = (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-  Serial.print(F("Free RAM : "));
-  Serial.println(free); // Which is the unit?
-}
-*/
+//
+//static void freeRAM () {
+//  extern int __heap_start, *__brkval;
+//  int v;
+//  int free = (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+//  Serial.print(F("Free RAM : "));
+//  Serial.println(free); // Which is the unit?
+//}
+
 
 
 
