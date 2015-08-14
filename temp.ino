@@ -1,4 +1,4 @@
-/*-----( Import needed libraries )-----*/
+#include <Adafruit_INA219.h>
 #include <math.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -47,6 +47,7 @@ File SDFileData;
 // Set the pins on the I2C chip used for LCD connections:
 // addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  // Set the LCD I2C address
+Adafruit_INA219 ina219;
 enum { // enumerating 3 major temperature scales
   T_KELVIN = 0,
   T_CELSIUS,
@@ -55,7 +56,9 @@ enum { // enumerating 3 major temperature scales
 
 /*----( SETUP: RUNS ONCE )----*/
 void setup() {
+  uint32_t currentFrequency;
   Serial.begin(9600);  // Used to type in characters
+  ina219.begin();
   lcd.begin(16, 2);  // initialize the lcd for 16 chars 2 lines, turn on backlight
   /* DIO pin uesd for the CS function. Note that even if you are not driving this
    function from your Arduino board, you must still configure this as an output
@@ -68,15 +71,8 @@ void setup() {
     lcd.setCursor(0, 0); //Start at character 4 on line 0
     lcd.print("SD ERROR");
     while (1);
-  } else
-  {
+  } else{
     lcd.clear();
-    lcd.setCursor(0, 0); //Start at character 4 on line 0
-    lcd.print("CREASEFIELD");
-    delay(1000);
-    lcd.setCursor(0, 1);
-    lcd.print("CBTB002-001");
-    delay(2000);
   }
   pinMode(minusButton, INPUT);
   pinMode(plusButton, INPUT);
@@ -103,8 +99,7 @@ void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
 /////////////////////////
 
 /*---------------( USER SETTING OF SDCARD DATE )-------------*/
-void setDate()
-{
+void setDate(){
   lcd.clear();
   /* Check if the text file exists */
   if (SD.exists("date.txt"))
@@ -130,17 +125,13 @@ void setDate()
     while (1);
   }
 
-  while (digitalRead(okButton) == 1)
-  {
-    //delay(100);
-
+  while (digitalRead(okButton) == 1) {
     if (digitalRead(minusButton) != minusButtonLast)
     {
       delay(200);
       minusButtonLast != minusButtonLast;
       day++;
-      if (day == 32)
-      {
+      if (day == 32) {
         day = 1;
       }
     }
@@ -149,13 +140,10 @@ void setDate()
       delay(200);
       plusButtonLast != plusButtonLast;
       month++;
-      if (month == 13)
-      {
+      if (month == 13) {
         month = 1;
       }
-
     }
-
     displayDate();
   }
 
@@ -173,9 +161,6 @@ void confirmDate()
     if (digitalRead(minusButton) == 0)
     {
       lcd.clear();
-      lcd.setCursor(0, 0); //Start at character 4 on line 0
-      lcd.print("Saving.");
-      delay(2000);
       return;
 
     }
@@ -219,7 +204,7 @@ void displayDate()
 }
 
 /*---------------( WRITE DATE TO SDCARD )-------------*/
-void writeDate(){
+void writeDate() {
   SDFileData = SD.open("date.txt", FILE_WRITE);
   /* Check if the text file already exists */
   while (SD.exists("date.txt"))
@@ -232,7 +217,7 @@ void writeDate(){
   //Serial.println("Creating date.txt");
   SDFileData = SD.open("date.txt", FILE_WRITE);
   /* If the file was created ok then add some content */
-  if (SDFileData){
+  if (SDFileData) {
     //SDFileData.println("18,03,14");
     //Date
     SDFileData.print(day);
@@ -334,15 +319,15 @@ int resistanceErr() {
     if (digitalRead(minusButton) != minusButtonLast) {
       delay(200);
       packR = readResistance();
-      checkResistance(temperature,packR);
-      if(bitRead(fail,0) != 0){
+      checkResistance(temperature, packR);
+      if (bitRead(fail, 0) != 0) {
         break;
       }
     }
     if (digitalRead(plusButton) != plusButtonLast) {
       delay(200);
       minusButtonLast != minusButtonLast;
-      bitSet(fail,0);
+      bitSet(fail, 0);
       break;
     }
   }
@@ -385,12 +370,28 @@ int checkResistance(int temperature, int packR) {
       resistanceErr();
     }
   }
-  bitSet(fail,0);
+  bitSet(fail, 0);
 }
 
 
 /*---------------( ENTER SERIAL NUMBER, READING VALUES )-------------*/
 void readingValues() {
+  freeRAM();
+  float shuntvoltage = 0;
+  float busvoltage = 0;
+  float current_mA = 0;
+  float loadvoltage = 0;
+
+  shuntvoltage = ina219.getShuntVoltage_mV();
+  busvoltage = ina219.getBusVoltage_V();
+  current_mA = ina219.getCurrent_mA();
+  loadvoltage = busvoltage + (shuntvoltage / 1000);
+  
+  Serial.print("Bus Voltage:   "); Serial.print(busvoltage); Serial.println(" V");
+  Serial.print("Shunt Voltage: "); Serial.print(shuntvoltage); Serial.println(" mV");
+  Serial.print("Load Voltage:  "); Serial.print(loadvoltage); Serial.println(" V");
+  Serial.print("Current:       "); Serial.print(current_mA); Serial.println(" mA");
+  Serial.println("");
   lcd.clear();
   float voltage = analogRead(voltagePin);
   lcd.print(voltage);
@@ -451,8 +452,8 @@ void readingValues() {
     SDFileData.print(",");
     SDFileData.print(temperature);
     SDFileData.print(",");
-    //    SDFileData.print(packR);
-    //    SDFileData.print(",");
+    SDFileData.print(packR);
+    SDFileData.print(",");
     //    SDFileData.print(voltage1);
     //    SDFileData.print(",");
     //    SDFileData.print(voltage2);
@@ -481,7 +482,7 @@ void shortcircuitI()
   //take current reading
 }
 
-void displaySerial(){
+void displaySerial() {
   //lcd.clear();
   lcd.setCursor(0, 0); //Start at character 4 on line 0
   lcd.print("INSERT PACK");
@@ -497,14 +498,14 @@ void displaySerial(){
 
 }
 
-//
-//static void freeRAM () {
-//  extern int __heap_start, *__brkval;
-//  int v;
-//  int free = (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-//  Serial.print(F("Free RAM : "));
-//  Serial.println(free); // Which is the unit?
-//}
+
+static void freeRAM () {
+  extern int __heap_start, *__brkval;
+  int v;
+  int free = (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+  Serial.print(F("Free RAM : "));
+  Serial.println(free); // Which is the unit?
+}
 
 
 
