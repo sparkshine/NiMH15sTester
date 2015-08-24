@@ -17,25 +17,23 @@ void displaySerial();
 const int minusButton = 8;     // the number of the pushbutton pin
 const int plusButton = 7;     // the number of the pushbutton pin
 const int okButton = 9;     // the number of the pushbutton pin
+const float vcc = 5.0127; // measured output of Arduino regulator
 /*-----( Declare Variables )-----*/
 byte day;
 byte month;
 byte year;
 int serialNo;
 int lastSerialNo;
-int discard;
-int temperature;
-int packR;
+float temperature;
+float packR;
 uint8_t count = 0;
 uint8_t fail = 0;
-float vcc = 4.972;
-byte minusButtonLast = 1;     // the number of the pushbutton pin
-byte plusButtonLast = 1;     // the number of the pushbutton pin
-//int okButtonLast = 0;     // the number of the pushbutton pin
+byte minusButtonLast = 1;     // debounce for minus
+byte plusButtonLast = 1;     // debounce for plus button
+//int okButtonLast = 0;     // not used
 /*-----( Declare objects )-----*/
 File SDFileData;
 #define voltagePin A3 // Pack output (Common V output)
-
 #define SD_CARD_CD_DIO 10 // DIO pin used to control the modules CS pin
 #define SEMITEC_103JT_10k 3435.0f,293.15f,12110.0f  // THERMISTOR USED. BETA,T0,R0
 #define THERM1PIN 0     // Arduino Thermistor PIN
@@ -56,7 +54,7 @@ enum { // enumerating 3 major temperature scales
 
 void setup() { /*----( SETUP: RUNS ONCE )----*/
   uint32_t currentFrequency;
-  Serial.begin(9600);  // Used to type in characters
+  Serial.begin(9600);  // Serial used for debugging
   ina219.begin(); // Current sensor
   lcd.begin(16, 2);  // Initialize the lcd for 16 chars 2 lines
   lcd.backlight(); // backlight on
@@ -69,12 +67,11 @@ void setup() { /*----( SETUP: RUNS ONCE )----*/
   } else {
     lcd.clear();
   }
-  pinMode(minusButton, INPUT);
-  pinMode(plusButton, INPUT);
-  pinMode(okButton, INPUT);
-  pinMode(MOSFET, OUTPUT);
+  pinMode(minusButton, INPUT); //Setting buttons as Inputs
+  pinMode(plusButton, INPUT); 
+  pinMode(okButton, INPUT); 
+  pinMode(MOSFET, OUTPUT); // MOSFET to control short-circuit
 }/*--(end setup )---*/
-
 
 void loop() {  /*----( LOOP: RUNS CONSTANTLY )----*/
   setDate();
@@ -134,24 +131,17 @@ void setDate() {
   lcd.print("SET? CANCEL? ---");
 }
 /*---------------( CONFIRM DATE )-------------*/
-void confirmDate()
-{
-
-  while (1)
-  {
-    if (digitalRead(minusButton) == 0)
-    {
+void confirmDate(){
+  while (1){
+    if (digitalRead(minusButton) == 0){
       lcd.clear();
       return;
-
     }
-    else if (digitalRead(plusButton) == 0)
-    {
+    else if (digitalRead(plusButton) == 0){
       setDate();
     }
   }
 }
-
 /*---------------( DISPLAY DATE TO LCD SCREEN )-------------*/
 void displayDate() {
   //Date
@@ -170,7 +160,6 @@ void displayDate() {
   lcd.setCursor(13, 0); //Start at character 4 on line 0
   sprintf(buff, "%02d", year);
   lcd.print(buff);
-
   lcd.setCursor(0, 1);
   lcd.print("DD++  MM++   OK");
 }
@@ -209,16 +198,14 @@ void findLastSerial() {
     while (SDFileData.available()) {
       lastSerialNo = SDFileData.parseInt();
       serialNo = lastSerialNo + 1;
-      SDFileData.parseInt();
-      SDFileData.parseInt();
-      SDFileData.parseFloat();
-      SDFileData.parseFloat();
-      SDFileData.parseFloat();
-//      Serial.print("S/N: ");
-//      Serial.println(serialNo);
-      SDFileData.parseInt();
-      SDFileData.parseInt();
-      SDFileData.parseInt();
+      SDFileData.parseFloat(); // Temp
+      SDFileData.parseFloat(); // Resistance
+      SDFileData.parseFloat(); // Volt 1
+      SDFileData.parseFloat(); // Volt 2
+      SDFileData.parseFloat(); // SC current
+      SDFileData.parseInt(); // Day
+      SDFileData.parseInt(); // Month
+      SDFileData.parseInt(); // Year
     }
     SDFileData.close();
     lcd.clear();
@@ -256,7 +243,7 @@ void findLastSerial() {
 //  Serial.println("return to main");
 }
 
-float Temperature(int AnalogInputNumber, int OutputUnit, float B, float T0, float R0, float R_Balance) {
+float Temperature(int AnalogInputNumber, int OutputUnit, float B, float T0, float R0, float R_Balance) { // Read the temperature
   float R, T;
   R = ((1024.0f * R_Balance / float(analogRead(AnalogInputNumber))) - R_Balance);
   //  R = R_Balance * (1024.0f / float(analogRead(AnalogInputNumber)) - 1);
@@ -275,7 +262,7 @@ float Temperature(int AnalogInputNumber, int OutputUnit, float B, float T0, floa
   return T;
 }
 
-int resistanceErr() {
+int resistanceErr() { // Thermistor value is out of range. Take a new temperature reading and re-read thermistor up to five times
   lcd.clear();
   lcd.print("THERMISTOR ERROR");
   lcd.setCursor(0, 1);
@@ -294,14 +281,14 @@ int resistanceErr() {
   }
 }
 
-int readResistance() {
+int readResistance() { // Read the thermistor resistance of battery pack
   float rawADC = analogRead(THERM2PIN);
-  int packR = rawADC * R2_Balance / (1024.0f - rawADC);
+  float packR = rawADC * R2_Balance / (1024.0f - rawADC);
   Serial.print("Resistance: "); Serial.print(packR); Serial.println(" ohms");
   return packR;
 }
 
-int checkResistance(int temperature, int packR) {
+int checkResistance(int temperature, int packR) { // Check thermistor value against defined values
   if (temperature > 15 && temperature <= 17.5) {
     if ( packR < 13000 || packR > 16500) {
       resistanceErr();
@@ -452,6 +439,8 @@ void readingValues() {
     }
     delay(100);
   }
+  packR = packR / 1000.0f; // Convert into kOhms
+  current_mA = current_mA / 1000.0f; // Convert into Amps
   SDFileData = SD.open("results.txt", FILE_WRITE);
   if (SDFileData) {
     SDFileData.println("");
@@ -461,7 +450,13 @@ void readingValues() {
     SDFileData.print(",");
     SDFileData.print(packR);
     SDFileData.print(",");
+    uint8_t diff = voltage - loadvoltage;
+    if(diff > 1){    
     SDFileData.print(voltage);
+    }
+    else {
+      SDFileData.print(loadvoltage);
+    }
     SDFileData.print(",");
     SDFileData.print(loadvoltage);
     SDFileData.print(",");
@@ -493,7 +488,7 @@ void displaySerial() {
 }
 
 
-/* FUNCTION THAT CHECKS FREE MEMORY AVAILABLE */
+/* AVAILABLE MEMORY */
 //static void freeRAM () {
 //  extern int __heap_start, *__brkval;
 //  int v;
