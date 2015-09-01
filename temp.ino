@@ -380,8 +380,8 @@ void readingValues() {
     lcd.print(">");
     delay(160);//100ms delay
   }
-  shuntvoltage = ina219.getShuntVoltage_mV();
-  busvoltage = ina219.getBusVoltage_V();
+  shuntvoltage = ina219.getShuntVoltage_mV(); // Voltage from positive to negative terminal
+  busvoltage = ina219.getBusVoltage_V(); // Voltage from negative terminate to ground
   loadvoltage = busvoltage + (shuntvoltage / 1000);
   Serial.print("Bus Voltage:   "); Serial.print(busvoltage); Serial.println(" V");
   Serial.print("Shunt Voltage: "); Serial.print(shuntvoltage); Serial.println(" mV");
